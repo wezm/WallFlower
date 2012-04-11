@@ -35,3 +35,12 @@ Compile the files:
 Run the app (*couldn't resist*):
 
     make love
+
+License
+-------
+
+The project is licensed under the [zlib/libpng licence][license] (the
+same as LÖVE). See the [LICENSE][license-file] file for full details.
+
+[license-file]: https://github.com/wezm/WallFlower/blob/master/LICENSE.md
+[license]: http://www.opensource.org/licenses/zlib-license.php
