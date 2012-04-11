@@ -15,13 +15,10 @@ while true
     next_update = now + 30 -- redo in 30s
 
     -- This will block so only sleep in the alternate case
-    rsp, status, auth = http.request "http://tweetnest.local/"
+    rsp, status, auth = http.request "http://weather.wezm.net/weather.json"
 
     if status == 200
       thread\set "weather", rsp
-    -- http.request
-    --  url: "http://tweetnest.local/"
-    --  sink: ltn12.sink.file io.stdout
   else
     quit = thread\get "quit"
     if quit then return
