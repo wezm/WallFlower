@@ -3,7 +3,8 @@ extern crate actix_web;
 extern crate bytes;
 extern crate env_logger;
 extern crate futures;
-extern crate reqwest;
+extern crate tokio_core;
+extern crate hyper;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
@@ -16,12 +17,13 @@ use actix_web::{
 };
 
 use bytes::BytesMut;
-use futures::{Future, Stream};
+use futures::{Future, Stream, future::ok};
 use json::JsonValue;
+use hyper::Client;
+use tokio_core::reactor::Core;
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
 const USER_ID: &str = "40215689@N00";
-const URL: &str = "https://api.flickr.com/services/rest/?method=flickr.people.getPublicPhotos&api_key={api_key}&user_id={user_id}&min_taken_date=1388494800&per_page=100&extras=url_k"
 
 // https://api.flickr.com/services/rest/?method=flickr.people.getPublicPhotos&api_key=%@&user_id=%@&per_page=20&extras=url_sq,url_z
 
@@ -109,8 +111,35 @@ fn update_photostream() {
     // Download the ones that aren't in the cache
     // (optional) Clean up old images
     // Generate new JSON, move into place atomically
-    let url = format!(URL, api_key = API_KEY, user_id = USER_ID);
-    let body = reqwest::get(url).send().json();
+
+    // TODO: This will need to be an authenticated request in order to fetch private photos
+    let url = format!("https://api.flickr.com/services/rest/?method=flickr.people.getPhotos&api_key={api_key}&format=json&nojsoncallback=1&user_id={user_id}&min_taken_date=1388494800&content_type=1&privacy_filter=5&per_page=100&extras=url_k", api_key = API_KEY, user_id = USER_ID).parse().unwrap();
+
+    let mut core = Core::new().unwrap();
+    let client = Client::new();
+    let handle = core.handle();
+
+    let work = client
+    .get(url)
+    .and_then(|res| {
+        println!("Response: {}", res.status());
+        res
+            .into_body()
+            // Body is a stream, so as each chunk arrives...
+            .concat2()
+    })
+    .and_then(|body| {
+        // Parse JSON
+
+        // Spawn more requests ?
+        // handle.spawn(req)
+        ok(())
+    })
+    .map_err(|err| {
+        println!("Error: {}", err);
+    });
+
+    core.run(work).unwrap();
 }
 
 fn main() {
