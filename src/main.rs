@@ -10,6 +10,7 @@ extern crate serde_json;
 extern crate serde_derive;
 #[macro_use]
 extern crate json;
+extern crate wallflower;
 
 use actix_web::{
     error, http, middleware, server, App, AsyncResponder, Error, HttpMessage, HttpRequest,
@@ -21,6 +22,8 @@ use futures::{Future, Stream, future::ok};
 use json::JsonValue;
 use hyper::Client;
 use tokio_core::reactor::Core;
+
+use wallflower::flickr::PhotosResponse;
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
 const USER_ID: &str = "40215689@N00";
