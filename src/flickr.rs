@@ -59,10 +59,47 @@ pub struct PhotosResponse {
     stat: Stat,
 }
 
+#[derive(Debug, Deserialize)]
 pub struct User {
     nsid: String,
     username: String,
     fullname: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OauthToken {
+    token: String,
+    perms: String,
+    user: User,
+}
+
+impl From<CheckTokenResponse> for OauthToken {
+    fn from(res: CheckTokenResponse) -> Self {
+        OauthToken {
+            token: res.oauth.token.content,
+            perms: res.oauth.perms.content,
+            user: res.oauth.user
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct Element {
+    #[serde(rename="_content")]
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CheckTokenResponseOauth {
+    token: Element,
+    perms: Element,
+    user: User
+}
+
+// {"oauth":{"token":{"_content":"72157698177686331-fc8f8f2c03d4fb0d"},"perms":{"_content":"read"},"user":{"nsid":"40215689@N00","username":"wezm","fullname":"Wesley Moore"}},"stat":"ok"}
+#[derive(Debug, Deserialize)]
+struct CheckTokenResponse {
+    oauth: CheckTokenResponseOauth
 }
 
 #[derive(Debug)]
@@ -98,10 +135,6 @@ pub struct AuthenticatedClient {
     consumer_key: ConsumerKey,
     consumer_secret: ConsumerSecret,
     access_token: AccessToken,
-}
-
-pub fn check_token(access_token: &AccessToken) -> User {
-    unimplemented!()
 }
 
 impl Client {
@@ -234,6 +267,36 @@ impl AuthenticatedClient {
 
     pub fn access_token(&self) -> &AccessToken {
         &self.access_token
+    }
+
+    pub fn check_token(&self) -> FlickrResult<OauthToken> {
+        let ConsumerKey(ref consumer_key) = self.consumer_key;
+
+        let method = String::from("flickr.auth.oauth.checkToken");
+
+        let mut params = vec![
+            ("oauth_nonce", generate_nonce()),
+            ("oauth_timestamp", timestamp().to_string()),
+            ("oauth_token", self.access_token.token.clone()),
+            ("oauth_consumer_key", consumer_key.to_string()),
+            ("oauth_signature_method", String::from("HMAC-SHA1")),
+            ("oauth_version", String::from("1.0")),
+            ("format", String::from("json")),
+            ("nojsoncallback", String::from("1")),
+            ("method", method.clone()),
+        ];
+
+        let url = "https://api.flickr.com/services/rest";
+        let oauth_signature = signature(reqwest::Method::Get, url, &params, &self.consumer_secret, &self.access_token.secret);
+        params.push(("oauth_signature", oauth_signature));
+
+        let url = Url::parse_with_params(url, params).expect("Unable to parse url");
+
+        let mut res = reqwest::get(url).expect(&format!("error calling {}", method));
+
+        let token_res: CheckTokenResponse = res.json()?;
+
+        Ok(token_res.into())
     }
 }
 

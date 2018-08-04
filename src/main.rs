@@ -28,7 +28,6 @@ use wallflower::FlickrError;
 use wallflower::flickr::{self, PhotosResponse, AccessToken, AuthenticatedClient};
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
-const USER_ID: &str = "40215689@N00";
 
 // https://api.flickr.com/services/rest/?method=flickr.people.getPublicPhotos&api_key=%@&user_id=%@&per_page=20&extras=url_sq,url_z
 
@@ -111,6 +110,7 @@ fn index_mjsonrust(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error =
         .responder()
 }
 
+const USER_ID: &str = "40215689@N00";
 fn update_photostream() {
     // Request list of photos from Flickr
     // Download the ones that aren't in the cache
@@ -172,7 +172,10 @@ fn main() -> Result<(), FlickrError> {
     let client = flickr::Client::new(env!("FLICKR_API_KEY"), env!("FLICKR_API_SECRET"));
     let client = load_access_token(client)?;
 
-    println!("{:?}", client);
+    // Verify token, and get user info
+    let token_info = client.check_token()?;
+
+    println!("{:?}", token_info);
 
     Ok(())
 }
@@ -181,8 +184,6 @@ fn main2() {
     ::std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     let sys = actix::System::new("json-example");
-
-    update_photostream();
 
     server::new(|| {
         App::new()
