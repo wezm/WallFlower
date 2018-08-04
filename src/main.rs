@@ -146,12 +146,10 @@ fn update_photostream() {
 }
 
 fn main() {
-    let consumer_key = ConsumerKey(env!("FLICKR_API_KEY").to_string());
-    let consumer_secret = ConsumerSecret(env!("FLICKR_API_SECRET").to_string());
+    let client = flickr::Client::new(env!("FLICKR_API_KEY"), env!("FLICKR_API_SECRET"));
+    let client = client.authenticate();
 
-    let access_token = flickr::authenticate(&consumer_key, &consumer_secret);
-
-    println!("{:?}", access_token);
+    println!("{:?}", client);
 }
 
 fn main2() {
