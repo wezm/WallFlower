@@ -1,3 +1,4 @@
 .env
+.flickr-data.json
 /target
 **/*.rs.bk

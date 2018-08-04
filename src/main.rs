@@ -22,8 +22,10 @@ use futures::{future::ok, Future, Stream};
 use hyper::Client;
 use json::JsonValue;
 use tokio_core::reactor::Core;
+use std::fs::File;
 
-use wallflower::flickr::{self, PhotosResponse, ConsumerKey, ConsumerSecret};
+use wallflower::FlickrError;
+use wallflower::flickr::{self, PhotosResponse, AccessToken, AuthenticatedClient};
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
 const USER_ID: &str = "40215689@N00";
@@ -145,11 +147,34 @@ fn update_photostream() {
     core.run(work).unwrap();
 }
 
-fn main() {
+const FLICKR_DATA_FILE: &str = ".flickr-data.json";
+
+fn load_access_token(client: flickr::Client) -> Result<AuthenticatedClient, FlickrError> {
+    match File::open(FLICKR_DATA_FILE) {
+        Ok(file) => {
+            let access_token: AccessToken = serde_json::from_reader(file)?;
+            Ok(AuthenticatedClient::new(client, access_token))
+        }
+        Err(e) => {
+            println!("{:?}", e);
+            let client = client.authenticate()?;
+
+            // Save app data for using on the next run.
+            let file = File::create(FLICKR_DATA_FILE)?;
+            let _ = serde_json::to_writer_pretty(file, client.access_token())?;
+
+            Ok(client)
+        }
+    }
+}
+
+fn main() -> Result<(), FlickrError> {
     let client = flickr::Client::new(env!("FLICKR_API_KEY"), env!("FLICKR_API_SECRET"));
-    let client = client.authenticate();
+    let client = load_access_token(client)?;
 
     println!("{:?}", client);
+
+    Ok(())
 }
 
 fn main2() {

@@ -69,9 +69,9 @@ pub struct User {
 pub struct ConsumerKey(pub String);
 #[derive(Debug)]
 pub struct ConsumerSecret(pub String);
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TokenSecret(String);
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AccessToken {
     token: String,
     secret: TokenSecret,
@@ -220,6 +220,20 @@ impl Client {
             (Some(token), Some(secret)) => Ok(AccessToken { token, secret: TokenSecret(secret) }),
             _ => Err(FlickrError::AuthenticationError)
         }
+    }
+}
+
+impl AuthenticatedClient {
+    pub fn new(client: Client, access_token: AccessToken) -> Self {
+        AuthenticatedClient {
+            consumer_key: client.consumer_key,
+            consumer_secret: client.consumer_secret,
+            access_token
+        }
+    }
+
+    pub fn access_token(&self) -> &AccessToken {
+        &self.access_token
     }
 }
 
