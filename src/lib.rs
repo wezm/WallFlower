@@ -8,3 +8,4 @@ pub mod error;
 pub mod flickr;
 
 pub use error::FlickrError;
+pub use error::WallflowerError;

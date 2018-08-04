@@ -84,12 +84,12 @@ struct PhotoRaw {
 
 #[derive(Debug)]
 pub struct Photo {
-    title: String,
-    public: bool,
-    url_k: Url,
-    height_k: u32,
-    width_k: u32,
-    secret: Option<String>,
+    pub title: String,
+    pub public: bool,
+    pub url_k: Url,
+    pub height_k: u32,
+    pub width_k: u32,
+    pub secret: Option<String>,
 }
 
 impl TryFrom<PhotoRaw> for Photo {
