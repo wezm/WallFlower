@@ -3,9 +3,9 @@ extern crate actix_web;
 extern crate bytes;
 extern crate env_logger;
 extern crate futures;
-extern crate tokio_core;
 extern crate hyper;
 extern crate serde_json;
+extern crate tokio_core;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -18,9 +18,9 @@ use actix_web::{
 };
 
 use bytes::BytesMut;
-use futures::{Future, Stream, future::ok};
-use json::JsonValue;
+use futures::{future::ok, Future, Stream};
 use hyper::Client;
+use json::JsonValue;
 use tokio_core::reactor::Core;
 
 use wallflower::flickr::PhotosResponse;
@@ -123,24 +123,24 @@ fn update_photostream() {
     let handle = core.handle();
 
     let work = client
-    .get(url)
-    .and_then(|res| {
-        println!("Response: {}", res.status());
-        res
+        .get(url)
+        .and_then(|res| {
+            println!("Response: {}", res.status());
+            res
             .into_body()
             // Body is a stream, so as each chunk arrives...
             .concat2()
-    })
-    .and_then(|body| {
-        // Parse JSON
+        })
+        .and_then(|body| {
+            // Parse JSON
 
-        // Spawn more requests ?
-        // handle.spawn(req)
-        ok(())
-    })
-    .map_err(|err| {
-        println!("Error: {}", err);
-    });
+            // Spawn more requests ?
+            // handle.spawn(req)
+            ok(())
+        })
+        .map_err(|err| {
+            println!("Error: {}", err);
+        });
 
     core.run(work).unwrap();
 }

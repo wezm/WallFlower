@@ -12,6 +12,7 @@ reqwest = "*"
 hmac = "*"
 sha-1 = "*"
 base64 = "0.9"
+percent-encoding = "1.0"
 
 serde = "1.0"
 serde_json = "1.0"

@@ -1,22 +1,41 @@
-extern crate reqwest;
-extern crate uuid;
-extern crate hmac;
-extern crate sha1;
 extern crate base64;
+extern crate hmac;
+extern crate percent_encoding;
+extern crate reqwest;
+extern crate sha1;
+extern crate uuid;
 
-use std::time::SystemTime;
-use error::FlickrError;
-use self::reqwest::Url;
-use self::uuid::Uuid;
 use self::hmac::{Hmac, Mac};
+use self::percent_encoding::{utf8_percent_encode, EncodeSet};
+use self::reqwest::Url;
 use self::sha1::Sha1;
+use self::uuid::Uuid;
+use error::FlickrError;
+use std::time::SystemTime;
 
 type HmacSha1 = Hmac<Sha1>;
 type FlickrResult<T> = Result<T, FlickrError>;
 
+#[derive(Copy, Clone, Debug)]
+#[allow(non_camel_case_types)]
+struct UNRESERVED_ENCODE_SET;
+
+impl EncodeSet for UNRESERVED_ENCODE_SET {
+    fn contains(&self, byte: u8) -> bool {
+        if byte.is_ascii_lowercase() || byte.is_ascii_uppercase() || byte.is_ascii_digit() {
+            return false;
+        }
+
+        match byte {
+            b'-' | b'.' | b'_' | b'~' => false,
+            _ => true,
+        }
+    }
+}
+
 pub enum Stat {
     Ok,
-    Fail
+    Fail,
 }
 
 pub struct PhotoRaw {
@@ -24,7 +43,7 @@ pub struct PhotoRaw {
     ispublic: u32,
     url_k: String, // TODO: Add serde Url crate
     height_k: u32,
-    width_k: String
+    width_k: String,
 }
 
 pub struct Photo {
@@ -32,23 +51,31 @@ pub struct Photo {
     ispublic: bool,
     url_k: String, // TODO: Add serde Url crate
     height_k: u32,
-    width_k: u32
+    width_k: u32,
 }
 
 pub struct PhotosResponse {
     photo: Vec<PhotoRaw>,
-    stat: Stat
+    stat: Stat,
 }
 
 pub struct User {
     nsid: String,
     username: String,
-    fullname: String
+    fullname: String,
 }
 
 pub struct ConsumerKey(String);
+pub struct ConsumerSecret(String);
+pub struct TokenSecret(String);
 pub struct AccessToken(String);
 pub struct RequestToken(String);
+
+impl Default for TokenSecret {
+    fn default() -> Self {
+        TokenSecret(String::from(""))
+    }
+}
 
 pub fn check_token(access_token: &AccessToken) -> User {
     unimplemented!()
@@ -72,9 +99,14 @@ fn timestamp() -> u64 {
         .as_secs()
 }
 
-fn sign(base_string: &str) -> String {
-    let mut mac = HmacSha1::new_varkey(b"FIXME&") // FIXME
-        .expect("Unable to create HMACer");
+fn escape(value: &str) -> String {
+    // Percent encode according to OAuth requirements
+    utf8_percent_encode(value, UNRESERVED_ENCODE_SET).collect::<String>()
+}
+
+fn sign(base_string: &str, consumer_secret: &ConsumerSecret, token_secret: &TokenSecret) -> String {
+    let key = format!("{}&{}", escape(&consumer_secret.0), escape(&token_secret.0));
+    let mut mac = HmacSha1::new_varkey(key.as_bytes()).expect("Unable to create HMACer");
     mac.input(base_string.as_bytes());
 
     // oauth_signature is set to the calculated digest octet string, first base64-encoded per
@@ -82,13 +114,32 @@ fn sign(base_string: &str) -> String {
     base64::encode(&mac.result().code())
 }
 
+fn signature_base_string(
+    verb: reqwest::Method,
+    base_url: &str,
+    params: &[(&str, String)],
+) -> String {
+    let mut params = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", escape(k), escape(v)))
+        .collect::<Vec<_>>();
+    params.sort();
+
+    format!(
+        "{}&{}&{}",
+        verb.to_string(),
+        escape(base_url),
+        escape(&params.join("&")),
+    )
+}
+
 fn signature(verb: reqwest::Method, base_url: &str, params: &[(&str, String)]) -> String {
-    let mut params = params.to_vec();
-    params.sort_by(|a, b| a.0.cmp(b.0));
-
-    let url = Url::parse_with_params(base_url, params).expect("Unable to parse url");
-
-    sign(&[verb.to_string(), url.to_string()].join("&"))
+    let base_string = signature_base_string(verb, base_url, params);
+    sign(
+        &base_string,
+        &ConsumerSecret("FIXME".to_string()),
+        &TokenSecret::default(),
+    )
 }
 
 fn get_request_token(consumer_key: &ConsumerKey) -> FlickrResult<RequestToken> {
@@ -122,7 +173,24 @@ fn exchange_request_token(request_token: RequestToken) -> FlickrResult<AccessTok
 }
 
 #[test]
-fn test_sign() {
-    // This verifies the example from https://www.flickr.com/services/api/auth.oauth.html
-    assert_eq!(sign("GET&https%3A%2F%2Fwww.flickr.com%2Fservices%2Foauth%2Frequest_token&oauth_callback%3Dhttp%253A%252F%252Fwww.example.com%26oauth_consumer_key%3D653e7a6ecc1d528c516cc8f92cf98611%26oauth_nonce%3D95613465%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1305586162%26oauth_version%3D1.0"), "7w18YS2bONDPL/zgyzP5XTr5af4=");
+fn test_signature_base_string() {
+    let params = [
+        ("oauth_nonce", String::from("95613465")),
+        ("oauth_timestamp", String::from("1305586162")),
+        (
+            "oauth_consumer_key",
+            String::from("653e7a6ecc1d528c516cc8f92cf98611"),
+        ),
+        ("oauth_signature_method", String::from("HMAC-SHA1")),
+        ("oauth_version", String::from("1.0")),
+        ("oauth_callback", String::from("http://www.example.com")),
+    ];
+
+    assert_eq!(signature_base_string(reqwest::Method::Get, "https://www.flickr.com/services/oauth/request_token", &params), "GET&https%3A%2F%2Fwww.flickr.com%2Fservices%2Foauth%2Frequest_token&oauth_callback%3Dhttp%253A%252F%252Fwww.example.com%26oauth_consumer_key%3D653e7a6ecc1d528c516cc8f92cf98611%26oauth_nonce%3D95613465%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1305586162%26oauth_version%3D1.0");
 }
+
+// #[test]
+// fn test_sign() {
+//     // This verifies the example from https://www.flickr.com/services/api/auth.oauth.html
+//     assert_eq!(sign("GET&https%3A%2F%2Fwww.flickr.com%2Fservices%2Foauth%2Frequest_token&oauth_callback%3Dhttp%253A%252F%252Fwww.example.com%26oauth_consumer_key%3D653e7a6ecc1d528c516cc8f92cf98611%26oauth_nonce%3D95613465%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1305586162%26oauth_version%3D1.0"), "7w18YS2bONDPL/zgyzP5XTr5af4=");
+// }
