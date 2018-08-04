@@ -21,11 +21,11 @@ use bytes::BytesMut;
 use futures::{future::ok, Future, Stream};
 use hyper::Client;
 use json::JsonValue;
-use tokio_core::reactor::Core;
 use std::fs::File;
+use tokio_core::reactor::Core;
 
+use wallflower::flickr::{self, AccessToken, AuthenticatedClient, PhotosResponse};
 use wallflower::FlickrError;
-use wallflower::flickr::{self, PhotosResponse, AccessToken, AuthenticatedClient};
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
 
@@ -110,41 +110,24 @@ fn index_mjsonrust(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error =
         .responder()
 }
 
-const USER_ID: &str = "40215689@N00";
-fn update_photostream() {
+fn update_photostream(user_id: &str, client: &AuthenticatedClient) -> Result<(), FlickrError> {
     // Request list of photos from Flickr
     // Download the ones that aren't in the cache
     // (optional) Clean up old images
     // Generate new JSON, move into place atomically
 
-    // TODO: This will need to be an authenticated request in order to fetch private photos
-    let url = format!("https://api.flickr.com/services/rest/?method=flickr.people.getPhotos&api_key={api_key}&format=json&nojsoncallback=1&user_id={user_id}&min_taken_date=1388494800&content_type=1&privacy_filter=5&per_page=100&extras=url_k", api_key = API_KEY, user_id = USER_ID).parse().unwrap();
+    // let url = format!("https://api.flickr.com/services/rest/?method=flickr.people.getPhotos&api_key={api_key}&format=json&nojsoncallback=1&user_id={user_id}&min_taken_date=1388494800&content_type=1&privacy_filter=5&per_page=100&extras=url_k", api_key = API_KEY, user_id = USER_ID).parse().unwrap();
+    let arguments = [
+        ("min_taken_date", "1388494800".to_string()),
+        ("content_type", "1".to_string()), // Photos only
+        ("per_page", "100".to_string()),
+        ("extras", "url_k".to_string()),
+    ];
+    let photos = client.photos(user_id, &arguments)?;
 
-    let mut core = Core::new().unwrap();
-    let client = Client::new();
-    let handle = core.handle();
+    println!("{:?}", photos);
 
-    let work = client
-        .get(url)
-        .and_then(|res| {
-            println!("Response: {}", res.status());
-            res
-            .into_body()
-            // Body is a stream, so as each chunk arrives...
-            .concat2()
-        })
-        .and_then(|body| {
-            // Parse JSON
-
-            // Spawn more requests ?
-            // handle.spawn(req)
-            ok(())
-        })
-        .map_err(|err| {
-            println!("Error: {}", err);
-        });
-
-    core.run(work).unwrap();
+    Ok(())
 }
 
 const FLICKR_DATA_FILE: &str = ".flickr-data.json";
@@ -169,6 +152,8 @@ fn load_access_token(client: flickr::Client) -> Result<AuthenticatedClient, Flic
 }
 
 fn main() -> Result<(), FlickrError> {
+    env_logger::init();
+
     let client = flickr::Client::new(env!("FLICKR_API_KEY"), env!("FLICKR_API_SECRET"));
     let client = load_access_token(client)?;
 
@@ -176,6 +161,8 @@ fn main() -> Result<(), FlickrError> {
     let token_info = client.check_token()?;
 
     println!("{:?}", token_info);
+
+    update_photostream(&token_info.user.nsid, &client)?;
 
     Ok(())
 }

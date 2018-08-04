@@ -1,7 +1,7 @@
-extern crate serde_json;
 extern crate reqwest;
+extern crate serde_json;
 
-use std::io;
+use std::{io, num};
 
 #[derive(Fail, Debug)]
 pub enum FlickrError {
@@ -13,6 +13,10 @@ pub enum FlickrError {
     IoError(io::Error),
     #[fail(display = "HTTP error")]
     HttpError(reqwest::Error),
+    #[fail(display = "URL error")]
+    UrlError(reqwest::UrlError),
+    #[fail(display = "Parse error")]
+    ParseError(num::ParseIntError),
 }
 
 impl From<serde_json::Error> for FlickrError {
@@ -30,5 +34,17 @@ impl From<io::Error> for FlickrError {
 impl From<reqwest::Error> for FlickrError {
     fn from(err: reqwest::Error) -> Self {
         FlickrError::HttpError(err)
+    }
+}
+
+impl From<reqwest::UrlError> for FlickrError {
+    fn from(err: reqwest::UrlError) -> Self {
+        FlickrError::UrlError(err)
+    }
+}
+
+impl From<num::ParseIntError> for FlickrError {
+    fn from(err: num::ParseIntError) -> Self {
+        FlickrError::ParseError(err)
     }
 }

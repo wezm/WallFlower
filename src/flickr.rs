@@ -2,17 +2,21 @@ extern crate base64;
 extern crate hmac;
 extern crate percent_encoding;
 extern crate reqwest;
+extern crate serde;
 extern crate sha1;
 extern crate uuid;
 
 use self::hmac::{Hmac, Mac};
 use self::percent_encoding::{utf8_percent_encode, EncodeSet};
 use self::reqwest::Url;
+use self::serde::de::DeserializeOwned;
 use self::sha1::Sha1;
 use self::uuid::Uuid;
-use error::FlickrError;
-use std::time::SystemTime;
+
 use std::io;
+use std::time::SystemTime;
+
+use error::FlickrError;
 
 type HmacSha1 = Hmac<Sha1>;
 type FlickrResult<T> = Result<T, FlickrError>;
@@ -34,43 +38,98 @@ impl EncodeSet for UNRESERVED_ENCODE_SET {
     }
 }
 
+pub trait TryFrom<T>: Sized {
+    type Error;
+
+    fn try_from(value: T) -> Result<Self, Self::Error>;
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Stat {
     Ok,
     Fail,
 }
 
-pub struct PhotoRaw {
-    title: String,
-    ispublic: u32,
-    url_k: String, // TODO: Add serde Url crate
-    height_k: u32,
-    width_k: String,
+// For reasons I don't understand the width_k and height_k values are sometimes strings,
+// sometimes numbers.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Dimension {
+    Integer(u32),
+    String(String),
 }
 
+impl TryFrom<Dimension> for u32 {
+    type Error = FlickrError;
+
+    fn try_from(dim: Dimension) -> Result<Self, Self::Error> {
+        match dim {
+            Dimension::Integer(value) => Ok(value),
+            Dimension::String(value) => value.parse().map_err(FlickrError::from),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PhotoRaw {
+    title: String,
+    #[serde(rename = "ispublic")]
+    public: u32,
+    url_k: String, // TODO: Add serde Url crate
+    height_k: Dimension,
+    width_k: Dimension,
+    secret: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct Photo {
     title: String,
-    ispublic: bool,
-    url_k: String, // TODO: Add serde Url crate
+    public: bool,
+    url_k: Url,
     height_k: u32,
     width_k: u32,
+    secret: Option<String>,
 }
+
+impl TryFrom<PhotoRaw> for Photo {
+    type Error = FlickrError;
+
+    fn try_from(raw: PhotoRaw) -> Result<Self, Self::Error> {
+        Ok(Photo {
+            title: raw.title,
+            public: raw.public == 1,
+            url_k: raw.url_k.parse()?,
+            height_k: u32::try_from(raw.height_k)?,
+            width_k: u32::try_from(raw.width_k)?,
+            secret: raw.secret,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PhotosResponse {
-    photo: Vec<PhotoRaw>,
+    photos: PhotosResponsePhotos,
     stat: Stat,
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PhotosResponsePhotos {
+    photo: Vec<PhotoRaw>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct User {
-    nsid: String,
-    username: String,
-    fullname: String,
+    pub nsid: String,
+    pub username: String,
+    pub fullname: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct OauthToken {
-    token: String,
-    perms: String,
-    user: User,
+    pub token: String,
+    pub perms: String,
+    pub user: User,
 }
 
 impl From<CheckTokenResponse> for OauthToken {
@@ -78,14 +137,14 @@ impl From<CheckTokenResponse> for OauthToken {
         OauthToken {
             token: res.oauth.token.content,
             perms: res.oauth.perms.content,
-            user: res.oauth.user
+            user: res.oauth.user,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct Element {
-    #[serde(rename="_content")]
+    #[serde(rename = "_content")]
     content: String,
 }
 
@@ -93,13 +152,14 @@ struct Element {
 struct CheckTokenResponseOauth {
     token: Element,
     perms: Element,
-    user: User
+    user: User,
 }
 
 // {"oauth":{"token":{"_content":"72157698177686331-fc8f8f2c03d4fb0d"},"perms":{"_content":"read"},"user":{"nsid":"40215689@N00","username":"wezm","fullname":"Wesley Moore"}},"stat":"ok"}
 #[derive(Debug, Deserialize)]
 struct CheckTokenResponse {
-    oauth: CheckTokenResponseOauth
+    oauth: CheckTokenResponseOauth,
+    stat: Stat,
 }
 
 #[derive(Debug)]
@@ -139,7 +199,10 @@ pub struct AuthenticatedClient {
 
 impl Client {
     pub fn new(consumer_key: &str, consumer_secret: &str) -> Self {
-        Client { consumer_key: ConsumerKey(consumer_key.to_string()), consumer_secret: ConsumerSecret(consumer_secret.to_string()) }
+        Client {
+            consumer_key: ConsumerKey(consumer_key.to_string()),
+            consumer_secret: ConsumerSecret(consumer_secret.to_string()),
+        }
     }
 
     /// Perform an OAuth 1.0 authentication flow to obtain an access token
@@ -150,15 +213,23 @@ impl Client {
                 ("oauth_token", request_token.token.as_str()),
                 ("perms", "read"),
             ];
-            let authorization_url = Url::parse_with_params("https://www.flickr.com/services/oauth/authorize", &authorization_params).expect("unable to parse authorization_url");
+            let authorization_url = Url::parse_with_params(
+                "https://www.flickr.com/services/oauth/authorize",
+                &authorization_params,
+            ).expect("unable to parse authorization_url");
 
-            println!("Visit this url in your browser to authorize the application:\n\n{}", authorization_url);
+            println!(
+                "Visit this url in your browser to authorize the application:\n\n{}",
+                authorization_url
+            );
         }
 
         let mut verification_code = String::new();
         while verification_code.trim().is_empty() {
             print!("\nEnter the code: ");
-            io::stdin().read_line(&mut verification_code).map_err(|_err| FlickrError::AuthenticationError)?;
+            io::stdin()
+                .read_line(&mut verification_code)
+                .map_err(|_err| FlickrError::AuthenticationError)?;
         }
 
         // Exchange request token for access token
@@ -167,7 +238,7 @@ impl Client {
         Ok(AuthenticatedClient {
             consumer_key: self.consumer_key,
             consumer_secret: self.consumer_secret,
-            access_token
+            access_token,
         })
     }
 
@@ -184,7 +255,13 @@ impl Client {
         ];
 
         let url = "https://www.flickr.com/services/oauth/request_token";
-        let oauth_signature = signature(reqwest::Method::Get, url, &params, &self.consumer_secret, &TokenSecret::default());
+        let oauth_signature = signature(
+            reqwest::Method::Get,
+            url,
+            &params,
+            &self.consumer_secret,
+            &TokenSecret::default(),
+        );
         params.push(("oauth_signature", oauth_signature));
 
         let url = Url::parse_with_params(url, params).expect("Unable to parse url");
@@ -200,17 +277,24 @@ impl Client {
             match key.as_str() {
                 "oauth_token" => token = Some(value),
                 "oauth_token_secret" => secret = Some(value),
-                _ => ()
+                _ => (),
             }
         }
 
         match (token, secret) {
-            (Some(token), Some(secret)) => Ok(RequestToken { token, secret: TokenSecret(secret) }),
-            _ => Err(FlickrError::AuthenticationError)
+            (Some(token), Some(secret)) => Ok(RequestToken {
+                token,
+                secret: TokenSecret(secret),
+            }),
+            _ => Err(FlickrError::AuthenticationError),
         }
     }
 
-    fn exchange_request_token(&self, request_token: RequestToken, verification_code: &str) -> FlickrResult<AccessToken> {
+    fn exchange_request_token(
+        &self,
+        request_token: RequestToken,
+        verification_code: &str,
+    ) -> FlickrResult<AccessToken> {
         let ConsumerKey(ref consumer_key) = self.consumer_key;
 
         let mut params = vec![
@@ -224,7 +308,13 @@ impl Client {
         ];
 
         let url = "https://www.flickr.com/services/oauth/access_token";
-        let oauth_signature = signature(reqwest::Method::Get, url, &params, &self.consumer_secret, &request_token.secret);
+        let oauth_signature = signature(
+            reqwest::Method::Get,
+            url,
+            &params,
+            &self.consumer_secret,
+            &request_token.secret,
+        );
         params.push(("oauth_signature", oauth_signature));
 
         let url = Url::parse_with_params(url, params).expect("Unable to parse url");
@@ -245,13 +335,16 @@ impl Client {
             match key.as_str() {
                 "oauth_token" => token = Some(value),
                 "oauth_token_secret" => secret = Some(value),
-                _ => ()
+                _ => (),
             }
         }
 
         match (token, secret) {
-            (Some(token), Some(secret)) => Ok(AccessToken { token, secret: TokenSecret(secret) }),
-            _ => Err(FlickrError::AuthenticationError)
+            (Some(token), Some(secret)) => Ok(AccessToken {
+                token,
+                secret: TokenSecret(secret),
+            }),
+            _ => Err(FlickrError::AuthenticationError),
         }
     }
 }
@@ -261,7 +354,7 @@ impl AuthenticatedClient {
         AuthenticatedClient {
             consumer_key: client.consumer_key,
             consumer_secret: client.consumer_secret,
-            access_token
+            access_token,
         }
     }
 
@@ -269,34 +362,65 @@ impl AuthenticatedClient {
         &self.access_token
     }
 
-    pub fn check_token(&self) -> FlickrResult<OauthToken> {
-        let ConsumerKey(ref consumer_key) = self.consumer_key;
-
-        let method = String::from("flickr.auth.oauth.checkToken");
-
+    pub fn call<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        arguments: &[(&str, String)],
+    ) -> FlickrResult<T> {
         let mut params = vec![
+            ("api_key", self.consumer_key.0.clone()),
             ("oauth_nonce", generate_nonce()),
             ("oauth_timestamp", timestamp().to_string()),
             ("oauth_token", self.access_token.token.clone()),
-            ("oauth_consumer_key", consumer_key.to_string()),
+            ("oauth_consumer_key", self.consumer_key.0.clone()),
             ("oauth_signature_method", String::from("HMAC-SHA1")),
             ("oauth_version", String::from("1.0")),
             ("format", String::from("json")),
             ("nojsoncallback", String::from("1")),
-            ("method", method.clone()),
+            ("method", method.to_string()),
         ];
+        params.append(&mut arguments.to_vec());
 
         let url = "https://api.flickr.com/services/rest";
-        let oauth_signature = signature(reqwest::Method::Get, url, &params, &self.consumer_secret, &self.access_token.secret);
+        let oauth_signature = signature(
+            reqwest::Method::Get,
+            url,
+            &params,
+            &self.consumer_secret,
+            &self.access_token.secret,
+        );
         params.push(("oauth_signature", oauth_signature));
 
         let url = Url::parse_with_params(url, params).expect("Unable to parse url");
 
-        let mut res = reqwest::get(url).expect(&format!("error calling {}", method));
+        // if method == "flickr.people.getPhotos" {
+        //     let body = reqwest::get(url)?.text()?;
+        //     println!("{}", body);
+        //     Err(FlickrError::AuthenticationError)
+        // }
+        // else {
+        let res: T = reqwest::get(url)?.json()?;
+        Ok(res)
+        // }
+    }
 
-        let token_res: CheckTokenResponse = res.json()?;
-
+    pub fn check_token(&self) -> FlickrResult<OauthToken> {
+        let token_res: CheckTokenResponse = self.call("flickr.auth.oauth.checkToken", &[])?;
         Ok(token_res.into())
+    }
+
+    // NOTE: This might be a candidate for a builder to make setting optional arguments nicer
+    // {"stat":"fail","code":1,"message":"Required arguments missing"}
+    pub fn photos(&self, user_id: &str, arguments: &[(&str, String)]) -> FlickrResult<Vec<Photo>> {
+        let mut arguments = arguments.to_vec();
+        arguments.push(("user_id", user_id.to_string()));
+
+        let res: PhotosResponse = self.call("flickr.people.getPhotos", &arguments)?;
+        res.photos
+            .photo
+            .into_iter()
+            .map(|photo| Photo::try_from(photo))
+            .collect()
     }
 }
 
@@ -345,13 +469,15 @@ fn signature_base_string(
     )
 }
 
-fn signature(verb: reqwest::Method, base_url: &str, params: &[(&str, String)], consumer_secret: &ConsumerSecret, token_secret: &TokenSecret) -> String {
+fn signature(
+    verb: reqwest::Method,
+    base_url: &str,
+    params: &[(&str, String)],
+    consumer_secret: &ConsumerSecret,
+    token_secret: &TokenSecret,
+) -> String {
     let base_string = signature_base_string(verb, base_url, params);
-    sign(
-        &base_string,
-        consumer_secret,
-        token_secret,
-    )
+    sign(&base_string, consumer_secret, token_secret)
 }
 
 fn parse_oauth_response(body: &str) -> Vec<(String, String)> {
@@ -360,11 +486,11 @@ fn parse_oauth_response(body: &str) -> Vec<(String, String)> {
             let mut iter = pair.split("=");
             match (iter.next(), iter.next()) {
                 (Some(key), Some(value)) => (key.to_string(), value.to_string()),
-                _ => panic!("malformed OAuth response")
+                _ => panic!("malformed OAuth response"),
             }
-        }).collect()
+        })
+        .collect()
 }
-
 
 #[test]
 fn test_signature_base_string() {
