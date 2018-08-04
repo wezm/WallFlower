@@ -23,7 +23,7 @@ use hyper::Client;
 use json::JsonValue;
 use tokio_core::reactor::Core;
 
-use wallflower::flickr::PhotosResponse;
+use wallflower::flickr::{self, PhotosResponse, ConsumerKey, ConsumerSecret};
 
 const API_KEY: &str = env!("FLICKR_API_KEY");
 const USER_ID: &str = "40215689@N00";
@@ -146,6 +146,15 @@ fn update_photostream() {
 }
 
 fn main() {
+    let consumer_key = ConsumerKey(env!("FLICKR_API_KEY").to_string());
+    let consumer_secret = ConsumerSecret(env!("FLICKR_API_SECRET").to_string());
+
+    let access_token = flickr::authenticate(&consumer_key, &consumer_secret);
+
+    println!("{:?}", access_token);
+}
+
+fn main2() {
     ::std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     let sys = actix::System::new("json-example");
