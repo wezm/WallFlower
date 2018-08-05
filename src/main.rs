@@ -1,3 +1,4 @@
+extern crate chrono;
 extern crate env_logger;
 extern crate percent_encoding;
 extern crate piston_window;
@@ -6,16 +7,23 @@ extern crate serde_json;
 extern crate threadpool;
 extern crate wallflower;
 
-use threadpool::ThreadPool;
-use std::sync::mpsc::channel;
-use std::fs::File;
+use chrono::{DateTime, Local, TimeZone};
+use piston_window::{
+    clear, image, text, EventLoop, Flip, G2dTexture, Glyphs, ImageSize, OpenGL, PistonWindow, Size,
+    Texture, TextureSettings, Transformed, Window, WindowSettings,
+};
+use reqwest::Url;
+use std::borrow::Borrow;
 use std::env;
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::borrow::Borrow;
-use reqwest::Url;
-use piston_window::{clear, image, EventLoop, Flip, G2dTexture, ImageSize, OpenGL, PistonWindow,
-                    Size, Texture, TextureSettings, Transformed, Window, WindowSettings};
+use std::sync::mpsc::channel;
+use threadpool::ThreadPool;
+
+use std::sync::{Arc, Mutex};
+use std::thread::{self, sleep};
+use std::time::{Duration, SystemTime};
 
 use wallflower::flickr::{self, AccessToken, AuthenticatedClient, Photo};
 use wallflower::WallflowerError;
@@ -73,29 +81,37 @@ fn update_photostream(user_id: &str, client: &AuthenticatedClient) -> Result<(),
     // (optional) Clean up old images
     // Generate new JSON, move into place atomically
 
-    // let url = format!("https://api.flickr.com/services/rest/?method=flickr.people.getPhotos&api_key={api_key}&format=json&nojsoncallback=1&user_id={user_id}&min_taken_date=1388494800&content_type=1&privacy_filter=5&per_page=100&extras=url_k", api_key = API_KEY, user_id = USER_ID).parse().unwrap();
-    let arguments = [
-        ("min_taken_date", "1388494800".to_string()),
-        ("content_type", "1".to_string()), // Photos only
-        ("per_page", "100".to_string()),
-        ("extras", "url_k".to_string()),
-    ];
-    let photos = client.photos(user_id, &arguments)?;
-
-    println!("{:?}", photos);
-
     let pool = ThreadPool::new(8);
     let (tx, rx) = channel();
-    let photo_count = photos.len();
 
-    for photo in photos {
-        let tx = tx.clone();
-        pool.execute(move || fetch_photo(photo, tx))
+    // Check the last 500 photos
+    // TODO: photos page="2" pages="89" perpage="10" total="881">
+    // Stop if there are fewer than 5 pages
+    for page in 1..6 {
+        let arguments = [
+            ("min_taken_date", "1388494800".to_string()),
+            ("content_type", "1".to_string()), // Photos only
+            ("per_page", "100".to_string()),
+            ("page", page.to_string()),
+            ("extras", "url_k".to_string()),
+        ];
+        let photos = client.photos(user_id, &arguments)?;
+
+        //println!("{:?}", photos);
+
+        let photo_count = photos.len();
+
+        for photo in photos {
+            let tx = tx.clone();
+            pool.execute(move || fetch_photo(photo, tx))
+        }
+
+        rx.iter().take(photo_count).for_each(|result| {
+            if result.is_err() {
+                println!("{:?}", result)
+            }
+        });
     }
-
-    rx.iter()
-        .take(photo_count)
-        .for_each(|result| println!("{:?}", result));
 
     Ok(())
 }
@@ -140,6 +156,10 @@ fn translation_for_image(window_width: u32, image_width: f64) -> f64 {
     (window_width as f64 / 2.) - (image_width / 2.)
 }
 
+struct State {
+    now: DateTime<Local>,
+}
+
 fn main() -> Result<(), WallflowerError> {
     env_logger::init();
 
@@ -155,6 +175,19 @@ fn main() -> Result<(), WallflowerError> {
     println!("{:?}", token_info);
 
     update_photostream(&token_info.user.nsid, &client)?;
+    let state = Arc::new(Mutex::new(State { now: Local::now() }));
+
+    // Start the time updater thread
+    let thread_state = state.clone();
+    let one_second = Duration::from_secs(1);
+    thread::spawn(move || loop {
+        sleep(one_second);
+        {
+            let mut state = thread_state.lock().unwrap();
+            state.now = Local::now();
+            println!("updated time");
+        }
+    });
 
     // Start graphics
     let opengl = OpenGL::V3_2;
@@ -166,14 +199,21 @@ fn main() -> Result<(), WallflowerError> {
         .unwrap();
 
     let photos = Path::new("photos");
-    let photo = photos.join("43734225222_ee80dd32e5_k.jpg");
+    let photo = photos.join("43066177614_1777a32fbb_k.jpg");
     let photo: G2dTexture = Texture::from_path(
         &mut window.factory,
         &photo,
         Flip::None,
         &TextureSettings::new(),
-    ).unwrap();
-    window.set_lazy(true);
+    ).expect("error loading image texture");
+
+    let assets = Path::new("assets");
+    let font = assets.join("leaguegothic-regular-webfont.ttf");
+    let factory = window.factory.clone();
+    let mut glyphs =
+        Glyphs::new(font, factory, TextureSettings::new()).expect("error loading font");
+
+    //window.set_lazy(true);
     while let Some(event) = window.next() {
         let window_size = window.size();
 
@@ -191,6 +231,22 @@ fn main() -> Result<(), WallflowerError> {
             let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
 
             image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+
+            let time = {
+                let state = state.lock().unwrap();
+                state.now.format("%-I:%M %p")
+            };
+
+            let transform = context.transform.trans(10.0, 900.0);
+            text::Text::new_color([1.0, 1.0, 1.0, 0.5], 256)
+                .draw(
+                    &time.to_string(),
+                    &mut glyphs,
+                    &context.draw_state,
+                    transform,
+                    gfx,
+                )
+                .expect("text drawing error");
         });
     }
 

@@ -7,7 +7,7 @@ extern crate sha1;
 extern crate uuid;
 
 use self::hmac::{Hmac, Mac};
-use self::percent_encoding::{EncodeSet, utf8_percent_encode};
+use self::percent_encoding::{utf8_percent_encode, EncodeSet};
 use self::reqwest::Url;
 use self::serde::de::DeserializeOwned;
 use self::sha1::Sha1;
