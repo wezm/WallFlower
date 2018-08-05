@@ -136,6 +136,10 @@ fn zoom_for_image(window_size: Size, image_size: Size) -> f64 {
     }
 }
 
+fn translation_for_image(window_width: u32, image_width: f64) -> f64 {
+    (window_width as f64 / 2.) - (image_width / 2.)
+}
+
 fn main() -> Result<(), WallflowerError> {
     env_logger::init();
 
@@ -181,10 +185,12 @@ fn main() -> Result<(), WallflowerError> {
                 width: im_width,
                 height: im_height,
             };
-            let zoom = zoom_for_image(window_size, image_size);
 
-            // Calculate zoom so that the image will fit
-            image(&photo, context.transform.zoom(zoom), gfx);
+            let zoom = zoom_for_image(window_size, image_size);
+            // Position in the middle of the view
+            let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
+
+            image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
         });
     }
 
