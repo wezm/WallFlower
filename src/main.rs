@@ -179,9 +179,9 @@ fn main() -> Result<(), WallflowerError> {
 
     // Start the time updater thread
     let thread_state = state.clone();
-    let one_second = Duration::from_secs(1);
+    let time_update = Duration::from_secs(5);
     thread::spawn(move || loop {
-        sleep(one_second);
+        sleep(time_update);
         {
             let mut state = thread_state.lock().unwrap();
             state.now = Local::now();
@@ -237,7 +237,7 @@ fn main() -> Result<(), WallflowerError> {
                 state.now.format("%-I:%M %p")
             };
 
-            let transform = context.transform.trans(10.0, 900.0);
+            let transform = context.transform.trans(10.0, window_size.height as f64 - 20.);
             text::Text::new_color([1.0, 1.0, 1.0, 0.5], 256)
                 .draw(
                     &time.to_string(),
