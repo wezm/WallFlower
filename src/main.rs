@@ -1,5 +1,6 @@
 extern crate env_logger;
 extern crate percent_encoding;
+extern crate piston_window;
 extern crate reqwest;
 extern crate serde_json;
 extern crate threadpool;
@@ -13,9 +14,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::borrow::Borrow;
 use reqwest::Url;
+use piston_window::{clear, image, EventLoop, Flip, G2dTexture, ImageSize, OpenGL, PistonWindow,
+                    Size, Texture, TextureSettings, Transformed, Window, WindowSettings};
 
 use wallflower::flickr::{self, AccessToken, AuthenticatedClient, Photo};
 use wallflower::WallflowerError;
+
+enum Dimension {
+    Width(u32),
+    Height(u32),
+}
 
 fn download_file(url: &Url, path: &Path) -> Result<(), WallflowerError> {
     let mut file = File::create(path)?;
@@ -113,6 +121,21 @@ fn load_access_token(client: flickr::Client) -> Result<AuthenticatedClient, Wall
     }
 }
 
+fn largest_dimension(size: Size) -> Dimension {
+    if size.width > size.height {
+        Dimension::Width(size.width)
+    } else {
+        Dimension::Height(size.height)
+    }
+}
+
+fn zoom_for_image(window_size: Size, image_size: Size) -> f64 {
+    match largest_dimension(image_size) {
+        Dimension::Width(width) => window_size.width as f64 / width as f64,
+        Dimension::Height(height) => window_size.height as f64 / height as f64,
+    }
+}
+
 fn main() -> Result<(), WallflowerError> {
     env_logger::init();
 
@@ -128,6 +151,42 @@ fn main() -> Result<(), WallflowerError> {
     println!("{:?}", token_info);
 
     update_photostream(&token_info.user.nsid, &client)?;
+
+    // Start graphics
+    let opengl = OpenGL::V3_2;
+    let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
+        .exit_on_esc(true)
+        // .fullscreen(true)
+        .opengl(opengl)
+        .build()
+        .unwrap();
+
+    let photos = Path::new("photos");
+    let photo = photos.join("43734225222_ee80dd32e5_k.jpg");
+    let photo: G2dTexture = Texture::from_path(
+        &mut window.factory,
+        &photo,
+        Flip::None,
+        &TextureSettings::new(),
+    ).unwrap();
+    window.set_lazy(true);
+    while let Some(event) = window.next() {
+        let window_size = window.size();
+
+        window.draw_2d(&event, |context, gfx| {
+            clear([0.0; 4], gfx);
+
+            let (im_width, im_height) = photo.get_size();
+            let image_size = Size {
+                width: im_width,
+                height: im_height,
+            };
+            let zoom = zoom_for_image(window_size, image_size);
+
+            // Calculate zoom so that the image will fit
+            image(&photo, context.transform.zoom(zoom), gfx);
+        });
+    }
 
     Ok(())
 }
