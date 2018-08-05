@@ -15,6 +15,8 @@ pub enum WallflowerError {
     FlickrError(FlickrError),
     #[fail(display = "JSON error")]
     JsonError(serde_json::Error),
+    #[fail(display = "Graphics error")]
+    GraphicsError,
 }
 
 impl From<str::Utf8Error> for WallflowerError {
