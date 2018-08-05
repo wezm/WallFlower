@@ -9,9 +9,10 @@ extern crate wallflower;
 
 use chrono::{DateTime, Local, TimeZone};
 use piston_window::{
-    clear, image, text, EventLoop, Flip, G2dTexture, Glyphs, ImageSize, OpenGL, PistonWindow, Size,
+    clear, image, text, color, UpdateEvent, Flip, G2dTexture, Glyphs, ImageSize, OpenGL, PistonWindow, Size,
     Texture, TextureSettings, Transformed, Window, WindowSettings,
 };
+use piston_window::image::Image;
 use reqwest::Url;
 use std::borrow::Borrow;
 use std::env;
@@ -156,8 +157,24 @@ fn translation_for_image(window_width: u32, image_width: f64) -> f64 {
     (window_width as f64 / 2.) - (image_width / 2.)
 }
 
-struct State {
+struct Timer {
     now: DateTime<Local>,
+}
+
+enum State {
+    Idle { time: f64 },
+    Transitioning { time: f64 }
+}
+
+impl State {
+    fn alpha(&self) -> [f32; 4] {
+        let alpha = match self {
+            State::Idle { .. } => 0.,
+            State::Transitioning { time } => *time as f32,
+        };
+
+        color::alpha(alpha)
+    }
 }
 
 fn main() -> Result<(), WallflowerError> {
@@ -175,16 +192,17 @@ fn main() -> Result<(), WallflowerError> {
     println!("{:?}", token_info);
 
     update_photostream(&token_info.user.nsid, &client)?;
-    let state = Arc::new(Mutex::new(State { now: Local::now() }));
+    let timer = Arc::new(Mutex::new(Timer { now: Local::now() }));
+    let mut state = State::Idle { time: 0. };
 
     // Start the time updater thread
-    let thread_state = state.clone();
+    let bg_timer = timer.clone();
     let time_update = Duration::from_secs(5);
     thread::spawn(move || loop {
         sleep(time_update);
         {
-            let mut state = thread_state.lock().unwrap();
-            state.now = Local::now();
+            let mut timer = bg_timer.lock().unwrap();
+            timer.now = Local::now();
             println!("updated time");
         }
     });
@@ -206,6 +224,13 @@ fn main() -> Result<(), WallflowerError> {
         Flip::None,
         &TextureSettings::new(),
     ).expect("error loading image texture");
+    let next_photo = photos.join("43734177132_495b8c6bb7_k.jpg");
+    let next_photo: G2dTexture = Texture::from_path(
+        &mut window.factory,
+        &next_photo,
+        Flip::None,
+        &TextureSettings::new(),
+    ).expect("error loading image texture");
 
     let assets = Path::new("assets");
     let font = assets.join("leaguegothic-regular-webfont.ttf");
@@ -217,24 +242,48 @@ fn main() -> Result<(), WallflowerError> {
     while let Some(event) = window.next() {
         let window_size = window.size();
 
+        event.update(|args| {
+            match state {
+                State::Idle { time } if time > 5. => {
+                    println!("Transitioning!");
+                    state = State::Transitioning { time: 0. }
+                },
+                State::Idle { ref mut time } => *time += args.dt,
+                State::Transitioning { time } if time > 1. => {
+                    println!("Idling!");
+                    state = State::Idle { time: 0. }
+                },
+                State::Transitioning { ref mut time } => *time += args.dt,
+            }
+        });
+
         window.draw_2d(&event, |context, gfx| {
             clear([0.0; 4], gfx);
+
+            let (im_width, im_height) = next_photo.get_size();
+            let image_size = Size {
+                width: im_width,
+                height: im_height,
+            };
+            let zoom = zoom_for_image(window_size, image_size);
+            // Position in the middle of the view
+            let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
+            image(&next_photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
 
             let (im_width, im_height) = photo.get_size();
             let image_size = Size {
                 width: im_width,
                 height: im_height,
             };
-
             let zoom = zoom_for_image(window_size, image_size);
             // Position in the middle of the view
             let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
-
-            image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+            //image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+            Image::new_color(state.alpha()).draw(&photo, &Default::default(), context.transform.trans(trans, 0.).zoom(zoom), gfx);
 
             let time = {
-                let state = state.lock().unwrap();
-                state.now.format("%-I:%M %p")
+                let timer = timer.lock().unwrap();
+                timer.now.format("%-I:%M %p")
             };
 
             let transform = context.transform.trans(10.0, window_size.height as f64 - 20.);
