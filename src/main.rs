@@ -90,7 +90,7 @@ fn update_photostream(user_id: &str, client: &AuthenticatedClient) -> Result<(),
     // Check the last 500 photos
     // TODO: photos page="2" pages="89" perpage="10" total="881">
     // Stop if there are fewer than 5 pages
-    for page in 1..6 {
+    for page in 1..3 {
         let arguments = [
             ("min_taken_date", "1388494800".to_string()),
             ("content_type", "1".to_string()), // Photos only
@@ -248,10 +248,10 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let opengl = OpenGL::V3_2;
+    let opengl = OpenGL::V2_1;
     let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
         .exit_on_esc(true)
-        // .fullscreen(true)
+        .fullscreen(true)
         .opengl(opengl)
         .build()
         .unwrap();
