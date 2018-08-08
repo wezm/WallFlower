@@ -3,16 +3,17 @@ extern crate env_logger;
 extern crate percent_encoding;
 extern crate piston_window;
 extern crate reqwest;
+extern crate sdl2_window;
 extern crate serde_json;
 extern crate threadpool;
 extern crate wallflower;
 
-use chrono::{DateTime, Local, TimeZone};
-use piston_window::{
-    clear, image, text, color, UpdateEvent, Event, Loop, Flip, G2dTexture, Glyphs, ImageSize, Input, OpenGL, PistonWindow, Size,
-    Texture, TextureSettings, Transformed, Window, WindowSettings,
-};
+use chrono::{DateTime, Local};
+use piston_window::{clear, color, image, text, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow,
+                    Size, Texture, TextureSettings, Transformed, UpdateEvent, Window,
+                    WindowSettings};
 use piston_window::image::Image;
+use sdl2_window::Sdl2Window;
 use reqwest::Url;
 use std::borrow::Borrow;
 use std::env;
@@ -26,7 +27,7 @@ use threadpool::ThreadPool;
 
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use wallflower::flickr::{self, AccessToken, AuthenticatedClient, Photo};
 use wallflower::WallflowerError;
@@ -164,25 +165,26 @@ struct Timer {
 }
 
 struct Idle {
- time: f64, image: G2dTexture,
+    time: f64,
+    image: G2dTexture,
 }
 
 struct Transitioning {
- time: f64,
- image: G2dTexture,
- next_image: G2dTexture
+    time: f64,
+    image: G2dTexture,
+    next_image: G2dTexture,
 }
 
 enum State {
     Idle(Idle),
-    Transitioning(Transitioning)
+    Transitioning(Transitioning),
 }
 
 impl State {
     fn alpha(&self) -> [f32; 4] {
         let alpha = match self {
             State::Idle(_) => 0.,
-            State::Transitioning(Transitioning{ time, .. }) => *time as f32,
+            State::Transitioning(Transitioning { time, .. }) => *time as f32,
         };
 
         color::alpha(alpha)
@@ -191,21 +193,27 @@ impl State {
     fn alpha2(&self) -> [f32; 4] {
         let alpha = match self {
             State::Idle(_) => 0.,
-            State::Transitioning(Transitioning{ time, .. }) => *time as f32,
+            State::Transitioning(Transitioning { time, .. }) => *time as f32,
         };
 
         color::alpha(1.0 - alpha)
     }
 }
 
-fn load_photo<P: AsRef<Path>>(window: &mut PistonWindow, path: P) -> Result<G2dTexture, WallflowerError> {
+fn load_photo<P: AsRef<Path>>(
+    window: &mut PistonWindow<Sdl2Window>,
+    path: P,
+) -> Result<G2dTexture, WallflowerError> {
     println!("loading {:?}", path.as_ref());
     Texture::from_path(
         &mut window.factory,
         path.as_ref(),
         Flip::None,
         &TextureSettings::new(),
-    ).map_err(|_err| { println!("{:?}", _err); WallflowerError::GraphicsError })
+    ).map_err(|_err| {
+        println!("{:?}", _err);
+        WallflowerError::GraphicsError
+    })
 }
 
 fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
@@ -215,7 +223,10 @@ fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map(|ext| ext == jpg && path.is_file()).unwrap_or(false) {
+        if path.extension()
+            .map(|ext| ext == jpg && path.is_file())
+            .unwrap_or(false)
+        {
             println!("adding {:?}", path);
             photos.push(path);
         }
@@ -248,15 +259,17 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let opengl = OpenGL::V2_1;
-    let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
+    let mut window: PistonWindow<Sdl2Window> = WindowSettings::new("Wallflower", [1920, 1080])
         .exit_on_esc(true)
-        .fullscreen(true)
-        .opengl(opengl)
+        //.fullscreen(true)
+        //.opengl(opengl)
         .build()
         .unwrap();
 
-    let mut state = State::Idle(Idle { time: 0., image: load_photo(&mut window, &photos.next().unwrap())? }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
+    let mut state = State::Idle(Idle {
+        time: 0.,
+        image: load_photo(&mut window, &photos.next().unwrap())?,
+    }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
 
     // Start the time updater thread
     let timer = Arc::new(Mutex::new(Timer { now: Local::now() }));
@@ -284,32 +297,35 @@ fn main() -> Result<(), WallflowerError> {
     while let Some(event) = window.next() {
         let window_size = window.size();
 
-        match event {
-            Event::Loop(Loop::Update(args)) => {
-                state = match state {
-                    State::Idle(mut idle) => {
-                        if idle.time > 5. {
-                            println!("Transitioning!");
-                            State::Transitioning(Transitioning { time: 0., image: idle.image, next_image: load_photo(&mut window, photos.next().unwrap()).expect("error loading image FIXME") })
-                        }
-                        else {
-                            idle.time += args.dt;
-                            State::Idle(idle)
-                        }
-                    },
-                    State::Transitioning(mut transitioning) => {
-                        if transitioning.time > 1. {
-                            println!("Idling!");
-                            State::Idle(Idle { time: 0., image: transitioning.next_image })
-                        }
-                        else {
-                            transitioning.time += args.dt;
-                            State::Transitioning(transitioning)
-                        }
-                    },
-                };
-            }
-            _ => ()
+        if let Some(args) = event.update_args() {
+            state = match state {
+                State::Idle(mut idle) => {
+                    if idle.time > 5. {
+                        println!("Transitioning!");
+                        State::Transitioning(Transitioning {
+                            time: 0.,
+                            image: idle.image,
+                            next_image: load_photo(&mut window, photos.next().unwrap())
+                                .expect("error loading image FIXME"),
+                        })
+                    } else {
+                        idle.time += args.dt;
+                        State::Idle(idle)
+                    }
+                }
+                State::Transitioning(mut transitioning) => {
+                    if transitioning.time > 1. {
+                        println!("Idling!");
+                        State::Idle(Idle {
+                            time: 0.,
+                            image: transitioning.next_image,
+                        })
+                    } else {
+                        transitioning.time += args.dt;
+                        State::Transitioning(transitioning)
+                    }
+                }
+            };
         }
 
         window.draw_2d(&event, |context, gfx| {
@@ -324,8 +340,13 @@ fn main() -> Result<(), WallflowerError> {
                     };
                     let zoom = zoom_for_image(window_size, image_size);
                     // Position in the middle of the view
-                    let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
-                    image(&idle.image, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+                    let trans =
+                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
+                    image(
+                        &idle.image,
+                        context.transform.trans(trans, 0.).zoom(zoom),
+                        gfx,
+                    );
                 }
                 State::Transitioning(ref transitioning) => {
                     let (im_width, im_height) = transitioning.image.get_size();
@@ -335,9 +356,15 @@ fn main() -> Result<(), WallflowerError> {
                     };
                     let zoom = zoom_for_image(window_size, image_size);
                     // Position in the middle of the view
-                    let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
+                    let trans =
+                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
                     // image(&transitioning.image, context.transform.trans(trans, 0.).zoom(zoom), gfx);
-                    Image::new_color(state.alpha2()).draw(&transitioning.image, &Default::default(), context.transform.trans(trans, 0.).zoom(zoom), gfx);
+                    Image::new_color(state.alpha2()).draw(
+                        &transitioning.image,
+                        &Default::default(),
+                        context.transform.trans(trans, 0.).zoom(zoom),
+                        gfx,
+                    );
 
                     let (im_width, im_height) = transitioning.next_image.get_size();
                     let image_size = Size {
@@ -346,20 +373,26 @@ fn main() -> Result<(), WallflowerError> {
                     };
                     let zoom = zoom_for_image(window_size, image_size);
                     // Position in the middle of the view
-                    let trans = translation_for_image(window_size.width, image_size.width as f64 * zoom);
+                    let trans =
+                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
                     //image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
-                    Image::new_color(state.alpha()).draw(&transitioning.next_image, &Default::default(), context.transform.trans(trans, 0.).zoom(zoom), gfx);
+                    Image::new_color(state.alpha()).draw(
+                        &transitioning.next_image,
+                        &Default::default(),
+                        context.transform.trans(trans, 0.).zoom(zoom),
+                        gfx,
+                    );
                 }
             }
-
-
 
             let time = {
                 let timer = timer.lock().unwrap();
                 timer.now.format("%-I:%M %p")
             };
 
-            let transform = context.transform.trans(10.0, window_size.height as f64 - 20.);
+            let transform = context
+                .transform
+                .trans(10.0, window_size.height as f64 - 20.);
             text::Text::new_color([1.0, 1.0, 1.0, 0.5], 256)
                 .draw(
                     &time.to_string(),

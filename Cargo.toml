@@ -21,6 +21,7 @@ failure_derive = "*"
 threadpool = "1.7"
 uuid = { version = "0.6", features = ["v4"] }
 piston_window = "0.80.0"
+pistoncore-sdl2_window = "0.50"
 chrono = "0.4"
 
 [profile.release]
