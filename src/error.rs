@@ -2,6 +2,7 @@ extern crate reqwest;
 extern crate serde_json;
 
 use std::{io, num, str};
+use weather::WeatherError;
 
 #[derive(Fail, Debug)]
 pub enum WallflowerError {
@@ -17,6 +18,8 @@ pub enum WallflowerError {
     JsonError(serde_json::Error),
     #[fail(display = "Graphics error")]
     GraphicsError,
+    #[fail(display = "Weather error")]
+    WeatherError(WeatherError),
 }
 
 impl From<str::Utf8Error> for WallflowerError {
@@ -28,6 +31,12 @@ impl From<str::Utf8Error> for WallflowerError {
 impl From<FlickrError> for WallflowerError {
     fn from(err: FlickrError) -> Self {
         WallflowerError::FlickrError(err)
+    }
+}
+
+impl From<WeatherError> for WallflowerError {
+    fn from(err: WeatherError) -> Self {
+        WallflowerError::WeatherError(err)
     }
 }
 

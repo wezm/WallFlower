@@ -6,6 +6,7 @@ extern crate serde_derive;
 
 pub mod error;
 pub mod flickr;
+pub mod weather;
 
 pub use error::FlickrError;
 pub use error::WallflowerError;

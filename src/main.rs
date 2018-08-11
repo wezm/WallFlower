@@ -9,7 +9,7 @@ extern crate threadpool;
 extern crate wallflower;
 
 use chrono::{DateTime, Local};
-use piston_window::{clear, color, image, text, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow,
+use piston_window::{clear, color, image, text::Text, rectangle::Rectangle, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow,
                     Size, Texture, TextureSettings, Transformed, UpdateEvent, Window,
                     WindowSettings};
 use piston_window::image::Image;
@@ -30,6 +30,7 @@ use std::thread::{self, sleep};
 use std::time::Duration;
 
 use wallflower::flickr::{self, AccessToken, AuthenticatedClient, Photo};
+use wallflower::weather::{self, Observation};
 use wallflower::WallflowerError;
 
 enum Dimension {
@@ -162,6 +163,7 @@ fn translation_for_image(window_width: u32, image_width: f64) -> f64 {
 
 struct Timer {
     now: DateTime<Local>,
+    weather: Observation,
 }
 
 struct Idle {
@@ -235,6 +237,14 @@ fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
     Ok(photos)
 }
 
+fn latest_observation(observations: Vec<Observation>) -> Observation {
+    observations.into_iter().nth(0).expect("there are no observations")
+}
+
+fn format_observation(o: &Observation) -> String {
+    format!("{}°C   feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
+}
+
 fn main() -> Result<(), WallflowerError> {
     env_logger::init();
 
@@ -250,6 +260,9 @@ fn main() -> Result<(), WallflowerError> {
     println!("{:?}", token_info);
 
     update_photostream(&token_info.user.nsid, &client)?;
+    let bom = weather::Client::new();
+
+    let observations = bom.observations()?;
 
     // Load the list of available photos
     let photos = available_photos("photos")?;
@@ -272,7 +285,7 @@ fn main() -> Result<(), WallflowerError> {
     }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
 
     // Start the time updater thread
-    let timer = Arc::new(Mutex::new(Timer { now: Local::now() }));
+    let timer = Arc::new(Mutex::new(Timer { now: Local::now(), weather: latest_observation(observations) }));
     let bg_timer = timer.clone();
     let time_update = Duration::from_secs(5);
     thread::spawn(move || loop {
@@ -281,6 +294,8 @@ fn main() -> Result<(), WallflowerError> {
             let mut timer = bg_timer.lock().unwrap();
             timer.now = Local::now();
             println!("updated time");
+
+            // TODO: Update the weather periodically
         }
     });
 
@@ -288,7 +303,8 @@ fn main() -> Result<(), WallflowerError> {
     // let next_photo = load_photo(&mut window, "43734177132_495b8c6bb7_k.jpg")?;
 
     let assets = Path::new("assets");
-    let font = assets.join("leaguegothic-regular-webfont.ttf");
+    let ttf = assets.join("ttf");
+    let font = ttf.join("iosevka-ss08-semibold.ttf");
     let factory = window.factory.clone();
     let mut glyphs =
         Glyphs::new(font, factory, TextureSettings::new()).expect("error loading font");
@@ -385,23 +401,33 @@ fn main() -> Result<(), WallflowerError> {
                 }
             }
 
-            let time = {
+            // Draw status bar
+            let (time, weather) = {
                 let timer = timer.lock().unwrap();
-                timer.now.format("%-I:%M %p")
+                (timer.now.format("%-I:%M %p"), format_observation(&timer.weather))
             };
+
+            Rectangle::new([0., 0., 0., 0.75])
+                .draw(
+                    [0., window_size.height as f64 - 100., window_size.width as f64, 100.],
+                    &context.draw_state,
+                    context.transform,
+                    gfx,
+                );
+
 
             let transform = context
                 .transform
-                .trans(10.0, window_size.height as f64 - 20.);
-            text::Text::new_color([1.0, 1.0, 1.0, 0.5], 256)
+                .trans(10.0, window_size.height as f64 - 20.); // TODO: Centre?
+            Text::new_color([1.0, 1.0, 1.0, 0.75], 50)
                 .draw(
-                    &time.to_string(),
+                    &format!("{}     {}", time, weather),
                     &mut glyphs,
                     &context.draw_state,
                     transform,
                     gfx,
                 )
-                .expect("text drawing error");
+                .expect("weather text drawing error");
         });
     }
 
