@@ -242,7 +242,7 @@ fn latest_observation(observations: Vec<Observation>) -> Observation {
 }
 
 fn format_observation(o: &Observation) -> String {
-    format!("{}°C   feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
+    format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
 }
 
 fn main() -> Result<(), WallflowerError> {
@@ -409,7 +409,7 @@ fn main() -> Result<(), WallflowerError> {
 
             Rectangle::new([0., 0., 0., 0.75])
                 .draw(
-                    [0., window_size.height as f64 - 100., window_size.width as f64, 100.],
+                    [0., window_size.height as f64 - 80., window_size.width as f64, 100.],
                     &context.draw_state,
                     context.transform,
                     gfx,
