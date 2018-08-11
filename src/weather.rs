@@ -16,6 +16,7 @@ struct Observations {
 
 #[derive(Debug, Deserialize)]
 pub enum WindDirection {
+    CALM,
     N,
     NE,
     E,

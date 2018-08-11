@@ -203,7 +203,7 @@ impl State {
 }
 
 fn load_photo<P: AsRef<Path>>(
-    window: &mut PistonWindow<Sdl2Window>,
+    window: &mut PistonWindow,
     path: P,
 ) -> Result<G2dTexture, WallflowerError> {
     println!("loading {:?}", path.as_ref());
@@ -278,7 +278,7 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let mut window: PistonWindow<Sdl2Window> = WindowSettings::new("Wallflower", [1920, 1080])
+    let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
         .exit_on_esc(true)
         //.fullscreen(true)
         //.opengl(opengl)
