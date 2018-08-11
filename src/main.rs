@@ -9,9 +9,9 @@ extern crate threadpool;
 extern crate wallflower;
 
 use chrono::{DateTime, Local};
-use piston_window::{clear, color, image, text::Text, rectangle::Rectangle, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow,
+use piston_window::{clear, color, image, text::Text, rectangle::Rectangle, Button, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow, PressEvent,
                     Size, Texture, TextureSettings, Transformed, UpdateEvent, Window,
-                    WindowSettings};
+                    WindowSettings, Key};
 use piston_window::image::Image;
 use sdl2_window::Sdl2Window;
 use reqwest::Url;
@@ -354,6 +354,15 @@ fn main() -> Result<(), WallflowerError> {
                     }
                 }
             };
+        }
+
+        if let Some(press_args) = event.press_args() {
+            match press_args {
+                Button::Keyboard(Key::Left) => println!("left"),
+                Button::Keyboard(Key::Right) => println!("right"),
+                Button::Keyboard(Key::Space) => println!("TODO pause"),
+                _ => (),
+            }
         }
 
         window.draw_2d(&event, |context, gfx| {
