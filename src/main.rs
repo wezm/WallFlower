@@ -163,7 +163,7 @@ fn translation_for_image(window_width: u32, image_width: f64) -> f64 {
 
 struct Timer {
     now: DateTime<Local>,
-    weather: Observation,
+    weather: Option<Observation>,
 }
 
 struct Idle {
@@ -237,12 +237,18 @@ fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
     Ok(photos)
 }
 
-fn latest_observation(observations: Vec<Observation>) -> Observation {
-    observations.into_iter().nth(0).expect("there are no observations")
+fn latest_observation(observations: Vec<Observation>) -> Option<Observation> {
+    observations.into_iter().nth(0)
 }
 
-fn format_observation(o: &Observation) -> String {
-    format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
+fn format_observation(observation: &Option<Observation>) -> String {
+    if let Some(o) = observation {
+        format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
+    }
+    else {
+        let default = "--";
+        format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", default, default, default, default)
+    }
 }
 
 fn main() -> Result<(), WallflowerError> {
@@ -285,7 +291,7 @@ fn main() -> Result<(), WallflowerError> {
     }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
 
     // Start the time updater thread
-    let timer = Arc::new(Mutex::new(Timer { now: Local::now(), weather: latest_observation(observations) }));
+    let timer = Arc::new(Mutex::new(Timer { now: Local::now(), weather: None,  }));
     let bg_timer = timer.clone();
     let time_update = Duration::from_secs(5);
     thread::spawn(move || loop {
@@ -293,14 +299,20 @@ fn main() -> Result<(), WallflowerError> {
         {
             let mut timer = bg_timer.lock().unwrap();
             timer.now = Local::now();
-            println!("updated time");
-
-            // TODO: Update the weather periodically
         }
     });
 
-    // let photo = load_photo(&mut window, "43066177614_1777a32fbb_k.jpg")?;
-    // let next_photo = load_photo(&mut window, "43734177132_495b8c6bb7_k.jpg")?;
+    let bg_timer = timer.clone();
+    let weather_update = Duration::from_secs(5 * 60);
+    thread::spawn(move || loop {
+        let observation = bom.observations().ok().and_then(latest_observation);
+        {
+            let mut timer = bg_timer.lock().unwrap();
+            timer.weather = observation;
+        }
+        println!("updated weather");
+        sleep(weather_update);
+    });
 
     let assets = Path::new("assets");
     let ttf = assets.join("ttf");
