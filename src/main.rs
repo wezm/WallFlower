@@ -3,17 +3,15 @@ extern crate env_logger;
 extern crate percent_encoding;
 extern crate piston_window;
 extern crate reqwest;
-extern crate sdl2_window;
 extern crate serde_json;
 extern crate threadpool;
 extern crate wallflower;
 
 use chrono::{DateTime, Local};
-use piston_window::{clear, color, image, text::Text, rectangle::Rectangle, Button, Flip, G2dTexture, Glyphs, ImageSize, PistonWindow, PressEvent,
-                    Size, Texture, TextureSettings, Transformed, UpdateEvent, Window,
-                    WindowSettings, Key};
+use piston_window::{clear, color, image, Button, Flip, G2dTexture, Glyphs, ImageSize, Key, OpenGL,
+                    PistonWindow, PressEvent, Size, Texture, TextureSettings, Transformed,
+                    UpdateEvent, Window, WindowSettings, rectangle::Rectangle, text::Text};
 use piston_window::image::Image;
-use sdl2_window::Sdl2Window;
 use reqwest::Url;
 use std::borrow::Borrow;
 use std::env;
@@ -243,11 +241,16 @@ fn latest_observation(observations: Vec<Observation>) -> Option<Observation> {
 
 fn format_observation(observation: &Option<Observation>) -> String {
     if let Some(o) = observation {
-        format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum)
-    }
-    else {
+        format!(
+            "{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity",
+            o.air_temp, o.apparent_t, o.rain_trace, o.rel_hum
+        )
+    } else {
         let default = "--";
-        format!("{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity", default, default, default, default)
+        format!(
+            "{}°C feels like {}°C   Rain since 9am: {}mm   {}% humidity",
+            default, default, default, default
+        )
     }
 }
 
@@ -266,9 +269,6 @@ fn main() -> Result<(), WallflowerError> {
     println!("{:?}", token_info);
 
     update_photostream(&token_info.user.nsid, &client)?;
-    let bom = weather::Client::new();
-
-    let observations = bom.observations()?;
 
     // Load the list of available photos
     let photos = available_photos("photos")?;
@@ -278,10 +278,11 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
+    let opengl = OpenGL::V3_2;
     let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
         .exit_on_esc(true)
         //.fullscreen(true)
-        //.opengl(opengl)
+        .opengl(opengl)
         .build()
         .unwrap();
 
@@ -291,7 +292,10 @@ fn main() -> Result<(), WallflowerError> {
     }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
 
     // Start the time updater thread
-    let timer = Arc::new(Mutex::new(Timer { now: Local::now(), weather: None,  }));
+    let timer = Arc::new(Mutex::new(Timer {
+        now: Local::now(),
+        weather: None,
+    }));
     let bg_timer = timer.clone();
     let time_update = Duration::from_secs(5);
     thread::spawn(move || loop {
@@ -304,6 +308,7 @@ fn main() -> Result<(), WallflowerError> {
 
     let bg_timer = timer.clone();
     let weather_update = Duration::from_secs(5 * 60);
+    let bom = weather::Client::new();
     thread::spawn(move || loop {
         let observation = bom.observations().ok().and_then(latest_observation);
         {
@@ -425,17 +430,23 @@ fn main() -> Result<(), WallflowerError> {
             // Draw status bar
             let (time, weather) = {
                 let timer = timer.lock().unwrap();
-                (timer.now.format("%-I:%M %p"), format_observation(&timer.weather))
+                (
+                    timer.now.format("%-I:%M %p"),
+                    format_observation(&timer.weather),
+                )
             };
 
-            Rectangle::new([0., 0., 0., 0.75])
-                .draw(
-                    [0., window_size.height as f64 - 80., window_size.width as f64, 100.],
-                    &context.draw_state,
-                    context.transform,
-                    gfx,
-                );
-
+            Rectangle::new([0., 0., 0., 0.75]).draw(
+                [
+                    0.,
+                    window_size.height as f64 - 80.,
+                    window_size.width as f64,
+                    100.,
+                ],
+                &context.draw_state,
+                context.transform,
+                gfx,
+            );
 
             let transform = context
                 .transform

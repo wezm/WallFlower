@@ -6,20 +6,13 @@ use weather::WeatherError;
 
 #[derive(Fail, Debug)]
 pub enum WallflowerError {
-    #[fail(display = "I/O error")]
-    IoError(io::Error),
-    #[fail(display = "HTTP error")]
-    HttpError(reqwest::Error),
-    #[fail(display = "UTF-8 parse error")]
-    ParseError(str::Utf8Error),
-    #[fail(display = "Flickr error")]
-    FlickrError(FlickrError),
-    #[fail(display = "JSON error")]
-    JsonError(serde_json::Error),
-    #[fail(display = "Graphics error")]
-    GraphicsError,
-    #[fail(display = "Weather error")]
-    WeatherError(WeatherError),
+    #[fail(display = "I/O error")] IoError(io::Error),
+    #[fail(display = "HTTP error")] HttpError(reqwest::Error),
+    #[fail(display = "UTF-8 parse error")] ParseError(str::Utf8Error),
+    #[fail(display = "Flickr error")] FlickrError(FlickrError),
+    #[fail(display = "JSON error")] JsonError(serde_json::Error),
+    #[fail(display = "Graphics error")] GraphicsError,
+    #[fail(display = "Weather error")] WeatherError(WeatherError),
 }
 
 impl From<str::Utf8Error> for WallflowerError {
@@ -60,18 +53,12 @@ impl From<reqwest::Error> for WallflowerError {
 
 #[derive(Fail, Debug)]
 pub enum FlickrError {
-    #[fail(display = "The request was rejected")]
-    AuthenticationError,
-    #[fail(display = "JSON error")]
-    JsonError(serde_json::Error),
-    #[fail(display = "I/O error")]
-    IoError(io::Error),
-    #[fail(display = "HTTP error")]
-    HttpError(reqwest::Error),
-    #[fail(display = "URL error")]
-    UrlError(reqwest::UrlError),
-    #[fail(display = "Parse error")]
-    ParseError(num::ParseIntError),
+    #[fail(display = "The request was rejected")] AuthenticationError,
+    #[fail(display = "JSON error")] JsonError(serde_json::Error),
+    #[fail(display = "I/O error")] IoError(io::Error),
+    #[fail(display = "HTTP error")] HttpError(reqwest::Error),
+    #[fail(display = "URL error")] UrlError(reqwest::UrlError),
+    #[fail(display = "Parse error")] ParseError(num::ParseIntError),
 }
 
 impl From<serde_json::Error> for FlickrError {
