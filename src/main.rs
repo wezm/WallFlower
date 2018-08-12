@@ -1,18 +1,30 @@
 extern crate chrono;
 extern crate env_logger;
+extern crate glfw_window;
+extern crate graphics;
+extern crate image;
+extern crate opengl_graphics;
 extern crate percent_encoding;
-extern crate piston_window;
+extern crate piston;
 extern crate reqwest;
 extern crate serde_json;
 extern crate threadpool;
 extern crate wallflower;
 
 use chrono::{DateTime, Local};
-use piston_window::{clear, color, image, Button, Flip, G2dTexture, Glyphs, ImageSize, Key, OpenGL,
-                    PistonWindow, PressEvent, Size, Texture, TextureSettings, Transformed,
-                    UpdateEvent, Window, WindowSettings, rectangle::Rectangle, text::Text};
-use piston_window::image::Image;
 use reqwest::Url;
+use threadpool::ThreadPool;
+use piston::event_loop::*;
+use piston::input::*;
+use piston::window::{Size, Window, WindowSettings};
+use graphics::*;
+use opengl_graphics::*;
+use glfw_window::GlfwWindow;
+use image::DynamicImage;
+
+use std::sync::{Arc, Mutex};
+use std::thread::{self, sleep};
+use std::time::Duration;
 use std::borrow::Borrow;
 use std::env;
 use std::fs::{self, File};
@@ -20,12 +32,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::ffi::OsStr;
-
-use threadpool::ThreadPool;
-
-use std::sync::{Arc, Mutex};
-use std::thread::{self, sleep};
-use std::time::Duration;
 
 use wallflower::flickr::{self, AccessToken, AuthenticatedClient, Photo};
 use wallflower::weather::{self, Observation};
@@ -166,13 +172,13 @@ struct Timer {
 
 struct Idle {
     time: f64,
-    image: G2dTexture,
+    image: Texture,
 }
 
 struct Transitioning {
     time: f64,
-    image: G2dTexture,
-    next_image: G2dTexture,
+    image: Texture,
+    next_image: Texture,
 }
 
 enum State {
@@ -200,20 +206,20 @@ impl State {
     }
 }
 
-fn load_photo<P: AsRef<Path>>(
-    window: &mut PistonWindow,
-    path: P,
-) -> Result<G2dTexture, WallflowerError> {
+fn load_photo<P: AsRef<Path>>(path: P) -> Result<Texture, WallflowerError> {
     println!("loading {:?}", path.as_ref());
-    Texture::from_path(
-        &mut window.factory,
-        path.as_ref(),
-        Flip::None,
-        &TextureSettings::new(),
-    ).map_err(|_err| {
+
+    let photo = image::open(&path).map_err(|_err| {
         println!("{:?}", _err);
         WallflowerError::GraphicsError
-    })
+    })?;
+
+    let photo = match photo {
+        DynamicImage::ImageRgba8(photo) => photo,
+        x => x.to_rgba(),
+    };
+
+    Ok(Texture::from_image(&photo, &TextureSettings::new()))
 }
 
 fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
@@ -278,8 +284,8 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let opengl = OpenGL::V3_2;
-    let mut window: PistonWindow = WindowSettings::new("Wallflower", [1920, 1080])
+    let opengl = OpenGL::V2_1;
+    let mut window: GlfwWindow = WindowSettings::new("Wallflower", [1920, 1080])
         .exit_on_esc(true)
         //.fullscreen(true)
         .opengl(opengl)
@@ -288,7 +294,7 @@ fn main() -> Result<(), WallflowerError> {
 
     let mut state = State::Idle(Idle {
         time: 0.,
-        image: load_photo(&mut window, &photos.next().unwrap())?,
+        image: load_photo(&photos.next().unwrap())?,
     }); // unwrap should be safe because there are elements in the Vec and cycle means it will never return None
 
     // Start the time updater thread
@@ -322,12 +328,12 @@ fn main() -> Result<(), WallflowerError> {
     let assets = Path::new("assets");
     let ttf = assets.join("ttf");
     let font = ttf.join("iosevka-ss08-semibold.ttf");
-    let factory = window.factory.clone();
-    let mut glyphs =
-        Glyphs::new(font, factory, TextureSettings::new()).expect("error loading font");
+    let mut glyphs = GlyphCache::new(font, (), TextureSettings::new()).expect("error loading font");
 
-    //window.set_lazy(true);
-    while let Some(event) = window.next() {
+    let mut gl = GlGraphics::new(opengl);
+    let mut events = Events::new(EventSettings::new());
+
+    while let Some(event) = events.next(&mut window) {
         let window_size = window.size();
 
         if let Some(args) = event.update_args() {
@@ -338,7 +344,7 @@ fn main() -> Result<(), WallflowerError> {
                         State::Transitioning(Transitioning {
                             time: 0.,
                             image: idle.image,
-                            next_image: load_photo(&mut window, photos.next().unwrap())
+                            next_image: load_photo(photos.next().unwrap())
                                 .expect("error loading image FIXME"),
                         })
                     } else {
@@ -370,97 +376,105 @@ fn main() -> Result<(), WallflowerError> {
             }
         }
 
-        window.draw_2d(&event, |context, gfx| {
-            clear([0.0; 4], gfx);
+        if let Some(args) = event.render_args() {
+            gl.draw(args.viewport(), |context, gfx| {
+                clear([0.0; 4], gfx);
 
-            match state {
-                State::Idle(ref idle) => {
-                    let (im_width, im_height) = idle.image.get_size();
-                    let image_size = Size {
-                        width: im_width,
-                        height: im_height,
-                    };
-                    let zoom = zoom_for_image(window_size, image_size);
-                    // Position in the middle of the view
-                    let trans =
-                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
-                    image(
-                        &idle.image,
-                        context.transform.trans(trans, 0.).zoom(zoom),
-                        gfx,
-                    );
+                match state {
+                    State::Idle(ref idle) => {
+                        let (im_width, im_height) = idle.image.get_size();
+                        let image_size = Size {
+                            width: im_width,
+                            height: im_height,
+                        };
+                        let zoom = zoom_for_image(window_size, image_size);
+                        // Position in the middle of the view
+                        let trans = translation_for_image(
+                            window_size.width,
+                            image_size.width as f64 * zoom,
+                        );
+                        image(
+                            &idle.image,
+                            context.transform.trans(trans, 0.).zoom(zoom),
+                            gfx,
+                        );
+                    }
+                    State::Transitioning(ref transitioning) => {
+                        let (im_width, im_height) = transitioning.image.get_size();
+                        let image_size = Size {
+                            width: im_width,
+                            height: im_height,
+                        };
+                        let zoom = zoom_for_image(window_size, image_size);
+                        // Position in the middle of the view
+                        let trans = translation_for_image(
+                            window_size.width,
+                            image_size.width as f64 * zoom,
+                        );
+                        // image(&transitioning.image, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+                        Image::new_color(state.alpha2()).draw(
+                            &transitioning.image,
+                            &Default::default(),
+                            context.transform.trans(trans, 0.).zoom(zoom),
+                            gfx,
+                        );
+
+                        let (im_width, im_height) = transitioning.next_image.get_size();
+                        let image_size = Size {
+                            width: im_width,
+                            height: im_height,
+                        };
+                        let zoom = zoom_for_image(window_size, image_size);
+                        // Position in the middle of the view
+                        let trans = translation_for_image(
+                            window_size.width,
+                            image_size.width as f64 * zoom,
+                        );
+                        //image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
+                        Image::new_color(state.alpha()).draw(
+                            &transitioning.next_image,
+                            &Default::default(),
+                            context.transform.trans(trans, 0.).zoom(zoom),
+                            gfx,
+                        );
+                    }
                 }
-                State::Transitioning(ref transitioning) => {
-                    let (im_width, im_height) = transitioning.image.get_size();
-                    let image_size = Size {
-                        width: im_width,
-                        height: im_height,
-                    };
-                    let zoom = zoom_for_image(window_size, image_size);
-                    // Position in the middle of the view
-                    let trans =
-                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
-                    // image(&transitioning.image, context.transform.trans(trans, 0.).zoom(zoom), gfx);
-                    Image::new_color(state.alpha2()).draw(
-                        &transitioning.image,
-                        &Default::default(),
-                        context.transform.trans(trans, 0.).zoom(zoom),
-                        gfx,
-                    );
 
-                    let (im_width, im_height) = transitioning.next_image.get_size();
-                    let image_size = Size {
-                        width: im_width,
-                        height: im_height,
-                    };
-                    let zoom = zoom_for_image(window_size, image_size);
-                    // Position in the middle of the view
-                    let trans =
-                        translation_for_image(window_size.width, image_size.width as f64 * zoom);
-                    //image(&photo, context.transform.trans(trans, 0.).zoom(zoom), gfx);
-                    Image::new_color(state.alpha()).draw(
-                        &transitioning.next_image,
-                        &Default::default(),
-                        context.transform.trans(trans, 0.).zoom(zoom),
-                        gfx,
-                    );
-                }
-            }
+                // Draw status bar
+                let (time, weather) = {
+                    let timer = timer.lock().unwrap();
+                    (
+                        timer.now.format("%-I:%M %p"),
+                        format_observation(&timer.weather),
+                    )
+                };
 
-            // Draw status bar
-            let (time, weather) = {
-                let timer = timer.lock().unwrap();
-                (
-                    timer.now.format("%-I:%M %p"),
-                    format_observation(&timer.weather),
-                )
-            };
-
-            Rectangle::new([0., 0., 0., 0.75]).draw(
-                [
-                    0.,
-                    window_size.height as f64 - 80.,
-                    window_size.width as f64,
-                    100.,
-                ],
-                &context.draw_state,
-                context.transform,
-                gfx,
-            );
-
-            let transform = context
-                .transform
-                .trans(10.0, window_size.height as f64 - 20.); // TODO: Centre?
-            Text::new_color([1.0, 1.0, 1.0, 0.75], 50)
-                .draw(
-                    &format!("{}     {}", time, weather),
-                    &mut glyphs,
+                Rectangle::new([0., 0., 0., 0.75]).draw(
+                    [
+                        0.,
+                        window_size.height as f64 - 80.,
+                        window_size.width as f64,
+                        100.,
+                    ],
                     &context.draw_state,
-                    transform,
+                    context.transform,
                     gfx,
-                )
-                .expect("weather text drawing error");
-        });
+                );
+
+                let transform = context
+                    .transform
+                    .trans(10.0, window_size.height as f64 - 20.); // TODO: Centre?
+                Text::new_color([1.0, 1.0, 1.0, 0.75], 50)
+                    .draw(
+                        &format!("{}     {}", time, weather),
+                        &mut glyphs,
+                        &context.draw_state,
+                        transform,
+                        gfx,
+                    )
+                    .expect("weather text drawing error");
+            });
+        }
     }
 
     Ok(())

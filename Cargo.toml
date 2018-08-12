@@ -12,6 +12,7 @@ hmac = "*"
 sha-1 = "*"
 base64 = "0.9"
 percent-encoding = "1.0"
+uuid = { version = "0.6", features = ["v4"] }
 
 serde = "1.0"
 serde_json = "1.0"
@@ -19,9 +20,13 @@ serde_derive = "1.0"
 
 failure = "*"
 failure_derive = "*"
+
 threadpool = "1.7"
-uuid = { version = "0.6", features = ["v4"] }
-piston_window = "0.80.0"
+piston = "0.37"
+pistoncore-glfw_window = "0.43"
+piston2d-opengl_graphics = "0.53"
+piston2d-graphics = "0.26"
+image = "0.19"
 chrono = "0.4"
 
 # [profile.release]
