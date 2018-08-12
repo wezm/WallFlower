@@ -331,7 +331,12 @@ fn main() -> Result<(), WallflowerError> {
     let mut glyphs = GlyphCache::new(font, (), TextureSettings::new()).expect("error loading font");
 
     let mut gl = GlGraphics::new(opengl);
-    let mut events = Events::new(EventSettings::new());
+    let event_settings = EventSettings {
+        max_fps: 24,
+        ups: 24,
+        ..Default::default()
+    };
+    let mut events = Events::new(event_settings);
 
     while let Some(event) = events.next(&mut window) {
         let window_size = window.size();
