@@ -284,8 +284,8 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let opengl = OpenGL::V2_1;
-    let mut window: GlfwWindow = WindowSettings::new("Wallflower", [1920, 1080])
+    let opengl = OpenGL::V3_2;
+    let mut window: GlfwWindow = WindowSettings::new("Wallflower", [1366, 768])
         .exit_on_esc(true)
         //.fullscreen(true)
         .opengl(opengl)
@@ -454,12 +454,13 @@ fn main() -> Result<(), WallflowerError> {
                     )
                 };
 
+                let text_size = 30;
                 Rectangle::new([0., 0., 0., 0.75]).draw(
                     [
                         0.,
-                        window_size.height as f64 - 80.,
+                        window_size.height as f64 - (text_size as f64 * 2.),
                         window_size.width as f64,
-                        100.,
+                        text_size as f64 * 2.,
                     ],
                     &context.draw_state,
                     context.transform,
@@ -469,7 +470,7 @@ fn main() -> Result<(), WallflowerError> {
                 let transform = context
                     .transform
                     .trans(10.0, window_size.height as f64 - 20.); // TODO: Centre?
-                Text::new_color([1.0, 1.0, 1.0, 0.75], 50)
+                Text::new_color([1.0, 1.0, 1.0, 0.75], text_size)
                     .draw(
                         &format!("{}     {}", time, weather),
                         &mut glyphs,
@@ -477,7 +478,7 @@ fn main() -> Result<(), WallflowerError> {
                         transform,
                         gfx,
                     )
-                    .expect("weather text drawing error");
+                    .expect("text drawing error");
             });
         }
     }
