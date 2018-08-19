@@ -284,7 +284,7 @@ fn main() -> Result<(), WallflowerError> {
     let mut photos = photos.iter().cycle();
 
     // Start graphics
-    let opengl = OpenGL::V3_2;
+    let opengl = OpenGL::V2_1;
     let mut window: GlfwWindow = WindowSettings::new("Wallflower", [1366, 768])
         .exit_on_esc(true)
         //.fullscreen(true)
