@@ -106,11 +106,8 @@ pub fn update_photostream(user_id: &str, client: &AuthenticatedClient) -> Result
     Ok(())
 }
 
-// FIXME: replace with argument to function
-const FLICKR_DATA_FILE: &str = ".flickr-data.json";
-
-pub fn load_access_token(client: flickr::Client) -> Result<AuthenticatedClient, WallflowerError> {
-    match File::open(FLICKR_DATA_FILE) {
+pub fn load_access_token<P: AsRef<Path>>(client: flickr::Client, path: P) -> Result<AuthenticatedClient, WallflowerError> {
+    match File::open(path.as_ref()) {
         Ok(file) => {
             let access_token: AccessToken = serde_json::from_reader(file)?;
             Ok(AuthenticatedClient::new(client, access_token))
@@ -120,7 +117,7 @@ pub fn load_access_token(client: flickr::Client) -> Result<AuthenticatedClient, 
             let client = client.authenticate()?;
 
             // Save app data for using on the next run.
-            let file = File::create(FLICKR_DATA_FILE)?;
+            let file = File::create(path.as_ref())?;
             let _ = serde_json::to_writer_pretty(file, client.access_token())?;
 
             Ok(client)

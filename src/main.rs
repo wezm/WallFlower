@@ -79,7 +79,7 @@ fn main() -> Result<(), WallflowerError> {
     let api_secret = env::var("FLICKR_API_SECRET").expect("FLICKR_API_SECRET must be set");
 
     let client = flickr::Client::new(&api_key, &api_secret);
-    let client = slideshow::load_access_token(client)?;
+    let client = slideshow::load_access_token(client, FLICKR_DATA_FILE)?;
 
     // Verify token, and get user info
     let token_info = client.check_token()?;
