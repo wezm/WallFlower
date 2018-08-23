@@ -23,6 +23,29 @@ enum Dimension {
     Height(u32),
 }
 
+mod ui {
+    use std::path::{Path, PathBuf};
+
+    pub struct Slideshow {
+        photos: Vec<PathBuf>
+    }
+
+    impl Slideshow {
+        fn new(path: &Path) -> Self {
+            // Load the list of available photos
+            let photos = super::available_photos(path);
+            if photos.len() == 0 {
+                panic!("No photos to show"); // TODO: Make nicer, fallback image? No photos text?
+            }
+            // let mut photos = photos.iter().cycle();
+
+            Slideshow {
+                photos
+            }
+        }
+    }
+}
+
 fn download_file(url: &Url, path: &Path) -> Result<(), WallflowerError> {
     let mut file = File::create(path)?;
     // TODO: Check that content type suggests it's actually an image
@@ -160,22 +183,26 @@ pub fn load_photo<P: AsRef<Path>>(path: P) -> Result<Texture, WallflowerError> {
     Ok(Texture::from_image(&photo, &TextureSettings::new()))
 }
 
-pub fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
+pub fn available_photos<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
     let mut photos = vec![];
     let jpg = OsStr::new("jpg");
+    let dir = match fs::read_dir(dir) {
+        Ok(dir) => dir,
+        Err(_) => return photos,
+    };
 
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension()
-            .map(|ext| ext == jpg && path.is_file())
-            .unwrap_or(false)
-        {
-            println!("adding {:?}", path);
-            photos.push(path);
+    for entry in dir {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.extension()
+                .map(|ext| ext == jpg && path.is_file())
+                .unwrap_or(false)
+            {
+                photos.push(path);
+            }
         }
     }
 
-    Ok(photos)
+    photos
 }
 
