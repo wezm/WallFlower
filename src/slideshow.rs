@@ -13,7 +13,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::ffi::OsStr;
-use image;
+use image::{self, Pixel, Rgba};
+use graphics::color::gamma_srgb_to_linear;
 
 use flickr::{self, AccessToken, AuthenticatedClient, Photo};
 use WallflowerError;
@@ -157,7 +158,31 @@ pub fn load_photo<P: AsRef<Path>>(path: P) -> Result<Texture, WallflowerError> {
         x => x.to_rgba(),
     };
 
-    Ok(Texture::from_image(&photo, &TextureSettings::new()))
+    let photo = convert_image_from_srgb_to_linear(photo);
+    Ok(Texture::from_image(&photo, &TextureSettings::new().convert_gamma(true)))
+}
+
+// Source: https://github.com/Rydgel/rust-rogue/blob/b09400daec0a84a82d6b357e9ffa5f55c68afd5c/src/drawings/sprites.rs#L64
+// Licence: MIT Copyright (c) 2016 Jérôme Mahuet
+fn convert_image_from_srgb_to_linear(img: image::ImageBuffer<Rgba<u8>, Vec<u8>>) -> image::ImageBuffer<Rgba<u8>, Vec<u8>> {
+    let mut new_img = img.clone();
+
+    for (x, y, pixel) in img.enumerate_pixels() {
+        let (r, g, b, a) = pixel.channels4();
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        let a = a as f32 / 255.0;
+        let new_color = gamma_srgb_to_linear([r, g, b, a]);
+        let r = (new_color[0] * 255.0) as u8;
+        let g = (new_color[1] * 255.0) as u8;
+        let b = (new_color[2] * 255.0) as u8;
+        let a = (new_color[3] * 255.0) as u8;
+        let new_pixel = image::Pixel::from_channels(r, g, b, a);
+        new_img.put_pixel(x, y, new_pixel);
+    }
+
+    new_img
 }
 
 pub fn available_photos(dir: &str) -> Result<Vec<PathBuf>, WallflowerError> {
